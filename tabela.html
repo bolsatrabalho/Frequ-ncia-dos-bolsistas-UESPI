@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Sistema de Frequência de Bolsistas</title>
+<style>
+    body { margin: 0; font-family: Arial, sans-serif; background: #f4f6f8; display: flex; justify-content: center; align-items: flex-start; }
+    .container { width: 95%; max-width: 1400px; background: #fff; margin-top: 30px; padding: 25px; border-radius: 8px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+    h2 { text-align: center; color: #333; margin-bottom: 10px; }
+    .info { text-align: center; color: #555; font-size: 14px; margin-bottom: 15px; }
+    .acoes { text-align: center; margin-bottom: 15px; }
+    button { padding: 8px 14px; border: none; border-radius: 5px; background: #0057b8; color: #fff; cursor: pointer; font-size: 14px; margin-right: 5px; }
+    button:hover { background: #004494; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border: 1px solid #ccc; padding: 6px; text-align: center; }
+    th { background: #f0f0f0; }
+    input[type="text"], input[type="date"], select { width: 100%; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<div class="container">
+    <h2>Sistema de Frequência de Bolsistas</h2>
+    <div class="info" id="infoUsuario"></div>
+    <div class="acoes">
+        <button id="btnAdicionar" onclick="adicionarBolsista()">➕ Adicionar Bolsista</button>
+        <button onclick="salvar()">💾 Salvar Local</button>
+        <button onclick="salvarEEnviar()">📤 Salvar e Enviar para Planilha</button>
+    </div>
+
+    <table>
+        <thead>
+            <tr>
+                <th>Campus</th><th>Nome</th><th>Matrícula</th><th>Setor</th>
+                <th>Início</th><th>Fim</th><th>Email Coordenador</th>
+                <th>Jan</th><th>Fev</th><th>Mar</th><th>Abr</th>
+                <th>Mai</th><th>Jun</th><th>Jul</th><th>Ago</th>
+                <th>Set</th><th>Out</th><th>Nov</th><th>Dez</th>
+                <th>Justificativa</th><th>Arquivo</th><th>ID Arquivo</th><th>Ações</th>
+            </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+    </table>
+</div>
+
+<script>
+// ✔ URL do Web App
+const WEBAPP_URL = "https://script.google.com/macros/s/AKfycbzF0mMrJxquM2RM5M7Ol5_4DYxPMtmXclIS-9wejKfmfWwon1spJFC7YzojvYWSLGlrjg/exec";
+
+// Identifica usuário
+const emailUsuario = sessionStorage.getItem("emailUsuario");
+const tipoUsuario = sessionStorage.getItem("tipoUsuario");
+
+if(!emailUsuario || !tipoUsuario) {
+    alert("Acesso inválido");
+    window.location.href = "index.html";
+}
+
+document.getElementById("infoUsuario").innerText =
+  `Usuário: ${emailUsuario} | Perfil: ${tipoUsuario === "admin" ? "Administrador" : "Coordenador"}`;
+
+if (tipoUsuario !== "admin") document.getElementById("btnAdicionar").classList.add("hidden");
+
+// Dados locais
+let bolsistas = JSON.parse(localStorage.getItem("bolsistas")) || [];
+
+// Renderiza tabela
+function renderTabela(){
+    const tbody = document.getElementById("tbody");
+    tbody.innerHTML = "";
+    bolsistas.forEach((b, i) => {
+        if(tipoUsuario !== "admin" && b.coordenador !== emailUsuario) return;
+
+        const arquivoLink = b.linkArquivo 
+          ? `<a href="${b.linkArquivo}" target="_blank">Abrir PDF</a>` 
+          : "";
+
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+            <td>${campoTexto(b.campus, i, "campus", tipoUsuario==="admin")}</td>
+            <td>${campoTexto(b.nome, i, "nome", true)}</td>
+            <td>${campoTexto(b.matricula, i, "matricula", tipoUsuario==="admin")}</td>
+            <td>${campoTexto(b.setor, i, "setor", tipoUsuario==="admin")}</td>
+            <td>${campoData(b.inicio, i, "inicio", tipoUsuario==="admin")}</td>
+            <td>${campoData(b.fim, i, "fim", tipoUsuario==="admin")}</td>
+            <td>${campoTexto(b.coordenador, i, "coordenador", tipoUsuario==="admin")}</td>
+
+            ${mesesHTML(b,i)}
+
+            <td>${campoTexto(b.justificativa, i, "justificativa", true)}</td>
+            <td><input type="file" onchange="uploadArquivo(${i}, this.files)"></td>
+            <td>${arquivoLink}</td>
+            <td>${tipoUsuario==="admin" ? `<button onclick="removerBolsista(${i})">Remover</button>` : ""}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+    salvarLocal();
+}
+
+// Funções de campo
+function campoTexto(val,i,field,edit){ return `<input type="text" value="${val||''}" ${edit?`onchange="atualizar(${i},'${field}',this.value)"`:"disabled"}>`; }
+function campoData(val,i,field,edit){ return `<input type="date" value="${val||''}" ${edit?`onchange="atualizar(${i},'${field}',this.value)"`:"disabled"}>`; }
+function mesesHTML(b,i){
+    const labels=["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
+    return labels.map((m,idx)=>`
+      <td><select onchange="atualizarMes(${i},${idx},this.value)">
+        <option ${b.meses[idx]==="SIM"?"selected":""}>SIM</option>
+        <option ${b.meses[idx]==="NÃO"?"selected":""}>NÃO</option>
+      </select></td>`).join("");
+}
+
+// Atualizações locais
+function atualizar(i,campo,valor){ bolsistas[i][campo]=valor; }
+function atualizarMes(i,mes,val){ bolsistas[i].meses[mes]=val; }
+function salvarLocal(){ localStorage.setItem("bolsistas", JSON.stringify(bolsistas)); }
+
+function adicionarBolsista(){
+    bolsistas.push({campus:"",nome:"",matricula:"",setor:"",inicio:"",fim:"",coordenador:"",meses:Array(12).fill("NÃO"),justificativa:"",linkArquivo:""});
+    renderTabela();
+}
+function removerBolsista(i){ if(confirm("Remover este bolsista?")){ bolsistas.splice(i,1); renderTabela(); } }
+
+// Upload de arquivo
+async function uploadArquivo(i, files){
+    if(files.length===0) return;
+    const arquivo = files[0];
+    const reader = new FileReader();
+    reader.onload = async function(){
+        const base64 = reader.result.split(",")[1];
+        const formData = new FormData();
+        formData.append("bolsistaIndex", i);
+        formData.append("nomeArquivo", arquivo.name);
+        formData.append("tipoArquivo", arquivo.type);
+        formData.append("arquivoBase64", base64);
+
+        const res = await fetch(WEBAPP_URL, {
+            method:"POST",
+            body: formData
+        });
+        const json = await res.json();
+        if(json.status==="ok"){
+            bolsistas[i].linkArquivo = json.link;
+            salvarLocal();
+            renderTabela();
+            alert("Arquivo enviado com sucesso!");
+        } else alert("Erro ao enviar: "+json.mensagem);
+    };
+    reader.readAsDataURL(arquivo);
+}
+
+// Envia tudo para planilha
+async function salvarEEnviar(){
+    salvarLocal();
+    try {
+        const res = await fetch(WEBAPP_URL, {
+            method:"POST",
+            headers:{"Content-Type":"application/json"},
+            body: JSON.stringify(bolsistas)
+        });
+        const json = await res.json();
+        if(json.status==="ok") alert("Dados salvos na planilha com sucesso!");
+        else alert("Erro ao salvar na planilha: "+json.mensagem);
+    } catch(err){
+        alert("Erro ao conectar: "+err.message);
+    }
+}
+
+renderTabela();
+</script>
+
+</body>
+</html>
